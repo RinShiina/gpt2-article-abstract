@@ -520,6 +520,8 @@ model = GPT2(GPT2Config())
 model.eval()
 model.to(device)
 
+# input.txt is just a sample text file with 40000 lines
+# just to test the model, you can use any text file
 enc = tiktoken.get_encoding("gpt2")
 with open('input.txt', 'r') as f:
     text = f.read()
