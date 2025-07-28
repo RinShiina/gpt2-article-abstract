@@ -1,4 +1,4 @@
-# Project of PKU 2025 summer school course *Large Model: From Basic to Practice*
+## Project of PKU 2025 summer school course *Large Model: From Basic to Practice*
 
 
 ### Part.1
