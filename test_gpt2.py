@@ -42,32 +42,70 @@ model.to(device)
 enc = tiktoken.get_encoding("gpt2")
 
 num_return = 5
-max_length = 40
+max_length = 150
+input_file_path = "article.txt"
+max_context_tokens = 1024 # GPT-2 的典型上下文窗口大小
 
-tokens = enc.encode("Hello, I'm an article summary generator. So what is an article summary generator?")
-tokens = torch.tensor(tokens, dtype=torch.long).unsqueeze(0)
-tokens = tokens.repeat(num_return, 1)
-x = tokens.to(device)
+# --- 1. 读取并处理文章 ---
+try:
+    with open(input_file_path, 'r', encoding='utf-8') as f:
+        article_text = f.read()
+except FileNotFoundError:
+    print(f"Error: Input file not found at '{input_file_path}'")
+    exit()
 
-torch.manual_seed(42)
-torch.cuda.manual_seed(42)
-while x.size(1) < max_length:
+# 将文章编码为 tokens
+tokens = enc.encode(article_text)
+# 截断以适应模型的上下文窗口
+if len(tokens) > max_context_tokens:
+    tokens = tokens[:max_context_tokens]
 
-    with torch.no_grad():
-        logits, _ = model(x)
+# 检查 max_length 是否大于输入长度
+if max_length <= len(tokens):
+    print(f"Warning: max_length ({max_length}) is not greater than the input text token count ({len(tokens)}).")
+    print(f"Increasing max_length to {len(tokens) + max_length} to allow for generation.")
+    max_length += len(tokens)
 
-    logits = logits[:, -1, :]
-    probs = F.softmax(logits, dim=-1)
+context_tokens = torch.tensor(tokens, dtype=torch.long).unsqueeze(0).to(device)
+context_len = context_tokens.size(1)
 
-    topk_probs, topk_indices = torch.topk(probs, k=50, dim=-1)
+torch.manual_seed(114)
+torch.cuda.manual_seed(114)
 
-    ix = torch.multinomial(topk_probs, num_samples=1)
+print(f"Starting generation with {context_len} context tokens, generating up to {max_length} total tokens.\n")
 
-    xcol = torch.gather(topk_indices, dim=-1, index=ix)
-
-    x = torch.cat((x, xcol), dim=1)
+# --- 2. 批量生成并计时 ---
+generated_sequences = []
+total_start_time = time.time()
 
 for i in range(num_return):
-    tokens = x[i, :max_length].tolist()
-    text = enc.decode(tokens)
-    print(f"Generated text {i+1}> {text}")
+    x = context_tokens.clone() # 每次都从完整的文章上下文开始
+
+    # 生成循环，直到达到目标总长度
+    while x.size(1) < max_length:
+        with torch.no_grad():
+            logits, _ = model(x)
+        logits = logits[:, -1, :]
+        probs = F.softmax(logits, dim=-1)
+        topk_probs, topk_indices = torch.topk(probs, k=50, dim=-1)
+        ix = torch.multinomial(topk_probs, num_samples=1)
+        xcol = torch.gather(topk_indices, dim=-1, index=ix)
+        x = torch.cat((x, xcol), dim=1)
+    
+    generated_sequences.append(x)
+
+# 停止计时
+total_end_time = time.time()
+
+# --- 3. 报告计时结果 ---
+total_time = total_end_time - total_start_time
+avg_time = total_time / num_return
+print(f"Total generation time for {num_return} samples: {total_time:.2f} seconds.")
+print(f"Average time per sample: {avg_time:.2f} seconds.\n")
+
+# --- 4. 解码并打印所有结果 ---
+for i, seq in enumerate(generated_sequences):
+    # 仅提取并解码新生成的部分
+    newly_generated_tokens = seq[0, context_len:].tolist()
+    text = enc.decode(newly_generated_tokens)
+    print(f"--- Generated text {i+1} ---\n{text}\n")

@@ -1,3 +1,4 @@
 test.ipynb
 *.txt
 /log
+__pycache__
